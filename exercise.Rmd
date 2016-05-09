@@ -1,0 +1,144 @@
+---
+title: "Practical Machine Learning: Prediction Assignment Writeup"
+author: "R. P. Ruiz"
+date: "May 8, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+DEBUG <- FALSE
+```
+
+## Background
+
+Blah, blah, blah
+
+## Dataset Preparation
+
+Import raw data and standardize missing information (NA)
+
+```{r cache=TRUE}
+# which values should be treated as NAs when imported?
+na_synonyms <- c( "", "NA", "NULL", "#DIV/0!" )
+exercise_test <- read.csv( "data/pml-testing.csv", na.strings = na_synonyms )
+exercise_train <- read.csv( "data/pml-training.csv", na.strings = na_synonyms )
+```
+
+```{r}
+# notice that test set doesn't contain target column 'classe'...
+print( "classe" %in% names( exercise_test ) )
+# ...while training does
+print( "classe" %in% names( exercise_train ) )
+
+# columns to omit, including time series data. 
+columns_not_needed <- c("X","user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp","new_window","num_window", "problem_id" )
+```
+
+##Drop Irrelevent Columns and NA Values
+```{r}
+
+# is.na( exercise_test ) provides cell by cell calc of NA presence
+# colSums essentially tallies up the "1"s representing NAs.
+columns_with_no_nas <- names( exercise_test[ , colSums( is.na( exercise_test ) ) == 0 ] )
+if ( DEBUG ) columns_with_no_nas
+
+# drop all column names not needed: if it's in the not needed list, then omit from the cleaned list
+features <- columns_with_no_nas[ !( columns_with_no_nas %in% columns_not_needed ) ]
+if ( DEBUG ) features
+
+# get relevant subset of data, add in missing columns - we'll need 'classe' to train model
+exercise_train <- exercise_train[ , c( features, "classe" ) ]
+# ...and we'll need 'problem_id' to answer quiz at end of unit
+exercise_test  <- exercise_test [ , c( features, "problem_id" ) ]
+```
+<!--
+## Looking for Covariates
+```{r}
+str( exercise_train )
+# omit the "classe", a character/factor column
+cor( exercise_train[ , features ] )[ 1, ]
+```
+-->
+
+## Create Training & Validation Partitions
+```{r}
+invisible( library( caret ) )
+set.seed( 05052016 )
+inTrain <- createDataPartition( y = exercise_train$classe, p = 0.75, list = FALSE )
+exercise_train_1  <- exercise_train[ inTrain, ]
+exercise_train_2  <- exercise_train[ -inTrain, ]
+dim( exercise_train_1 )
+dim( exercise_train_2 )
+```
+
+## Perform Initial Classification Using `RPart`
+```{r cache=TRUE}
+# build everthing-but-the-kitchen-sink model
+model_all <- train( classe ~., data = exercise_train_1, method = "rpart" )
+# dumps too much info to console
+#summary( model_all )$coef
+
+# get predictions
+predictions_train <- predict( model_all, newdata = exercise_train_1 )
+predictions_validate <- predict( model_all, newdata = exercise_train_2 )
+
+# look at structure of predictions
+if ( DEBUG ) str( predictions_train )
+if ( DEBUG ) summary( predictions_train )
+
+# check accuracy for training set...
+confusionMatrix( exercise_train_1$classe, predictions_train )$table
+confusionMatrix( exercise_train_1$classe, predictions_train )$overall[ 'Accuracy' ]
+
+# ...and for validation set
+confusionMatrix( exercise_train_2$classe, predictions_validate )$table
+confusionMatrix( exercise_train_2$classe, predictions_validate )$overall[ 'Accuracy' ]
+```
+
+This is obviously not good enough.  On to a different training algorithm
+
+## Initial Classification Using RandomForest
+```{r cache=TRUE}
+invisible( library( randomForest ) )
+
+# create model, limit trees to 10 to start with
+start_time <- proc.time()
+model_rf <- randomForest( classe ~ ., data = exercise_train_1, do.trace = FALSE, ntrees = 10 )
+proc.time() - start_time
+
+varImpPlot( model_rf, main="Feature Importance" )
+```
+
+## Optimizing RandomForest Classification
+```{r cache=TRUE}
+# calculate important features
+important_features <- importance( model_rf, sort=TRUE )
+importance_df <- data.frame( important_features, features )
+sorted_importance <- importance_df[ order( importance_df$MeanDecreaseGini, decreasing = TRUE), ]
+top_10_features <- sorted_importance[ 1:10, ]
+if ( DEBUG ) top_10_features
+# omit all other feature levels pulled in from larger list
+top_10_feature_names <- factor( top_10_features$feature )
+if ( DEBUG ) top_10_feature_names
+
+start_time <- proc.time()
+# this works in R console, but breaks in knitr, so use hand-built list instead...
+#model_rf <- randomForest( classe ~ top_10_feature_names, data = exercise_train_1, do.trace = FALSE, ntrees = 10 )
+model_rf <- randomForest( classe ~ roll_belt + yaw_belt + magnet_dumbbell_z + pitch_forearm + pitch_belt + magnet_dumbbell_y + roll_forearm + magnet_dumbbell_x + accel_dumbbell_y + roll_dumbbell, data = exercise_train_1, do.trace = FALSE, ntrees = 10 )
+proc.time() - start_time
+
+# training
+predictions_rf_train <- predict( model_rf, newdata = exercise_train_1, type = "class" )
+print( confusionMatrix( exercise_train_1$classe, predictions_rf_train )$table )
+print( confusionMatrix( exercise_train_1$classe, predictions_rf_train )$overall[ 'Accuracy' ] )
+
+# validation
+predictions_rf_validation <- predict( model_rf, newdata = exercise_train_2, type = "class" )
+print( confusionMatrix( exercise_train_2$classe, predictions_rf_validation )$table )
+print( confusionMatrix( exercise_train_2$classe, predictions_rf_validation )$overall[ 'Accuracy' ] )
+
+# test
+predictions_rf_test <- predict( model_rf, newdata = exercise_test, type = "class" )
+predictions_rf_test
+```
