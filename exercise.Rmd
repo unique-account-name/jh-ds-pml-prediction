@@ -12,7 +12,12 @@ DEBUG <- FALSE
 
 ## Background
 
-Blah, blah, blah
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively.
+
+The Human Activity Recognition group at the Pontifical Catholic University of Rio de Janeiro has loaned us some the data they've collected (http://groupware.les.inf.puc-rio.br/har).
+
+We're going to attempt to train a model for predicting which of 5 possible activities their experiment's subjects have performed and recorded.
+
 
 ## Dataset Preparation
 
@@ -21,9 +26,16 @@ Import raw data and standardize missing information (NA)
 ```{r cache=TRUE}
 # which values should be treated as NAs when imported?
 na_synonyms <- c( "", "NA", "NULL", "#DIV/0!" )
-exercise_test <- read.csv( "data/pml-testing.csv", na.strings = na_synonyms )
-exercise_train <- read.csv( "data/pml-training.csv", na.strings = na_synonyms )
+exercise_test <- read.csv( "../data/pml-testing.csv", na.strings = na_synonyms )
+exercise_train <- read.csv( "../data/pml-training.csv", na.strings = na_synonyms )
+
+dim( exercise_train )
+dim( exercise_test )
 ```
+
+##Drop Irrelevent Columns and NA Values
+
+There is a considerable amount of data here, over 19K observations containing 160 different fields.  Many of them contain NA values, so we'll take the easy way out and omit them.  If this were a more rigorous analysis, we'd consider imputation to replace missing data
 
 ```{r}
 # notice that test set doesn't contain target column 'classe'...
@@ -33,10 +45,6 @@ print( "classe" %in% names( exercise_train ) )
 
 # columns to omit, including time series data. 
 columns_not_needed <- c("X","user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp","new_window","num_window", "problem_id" )
-```
-
-##Drop Irrelevent Columns and NA Values
-```{r}
 
 # is.na( exercise_test ) provides cell by cell calc of NA presence
 # colSums essentially tallies up the "1"s representing NAs.
@@ -52,14 +60,6 @@ exercise_train <- exercise_train[ , c( features, "classe" ) ]
 # ...and we'll need 'problem_id' to answer quiz at end of unit
 exercise_test  <- exercise_test [ , c( features, "problem_id" ) ]
 ```
-<!--
-## Looking for Covariates
-```{r}
-str( exercise_train )
-# omit the "classe", a character/factor column
-cor( exercise_train[ , features ] )[ 1, ]
-```
--->
 
 ## Create Training & Validation Partitions
 ```{r}
@@ -73,6 +73,9 @@ dim( exercise_train_2 )
 ```
 
 ## Perform Initial Classification Using `RPart`
+
+We've whittled 160 columns down to 50-some, so now we'll take a quick brute-force look at a model created using all independent variables.
+
 ```{r cache=TRUE}
 # build everthing-but-the-kitchen-sink model
 model_all <- train( classe ~., data = exercise_train_1, method = "rpart" )
@@ -96,9 +99,12 @@ confusionMatrix( exercise_train_2$classe, predictions_validate )$table
 confusionMatrix( exercise_train_2$classe, predictions_validate )$overall[ 'Accuracy' ]
 ```
 
-This is obviously not good enough.  On to a different training algorithm
+This level of accuracy is not good enough.  On to a different training algorithm
 
 ## Initial Classification Using RandomForest
+
+Again, we'll attempt to build a model using all independent variables.
+
 ```{r cache=TRUE}
 invisible( library( randomForest ) )
 
@@ -111,6 +117,8 @@ varImpPlot( model_rf, main="Feature Importance" )
 ```
 
 ## Optimizing RandomForest Classification
+It turns out that the brute force approach above (using all independent variables) takes a considerable amount of time to compute, so we'll take a look at the more important features, and rebuild the model using the top 10 most important variables. 
+
 ```{r cache=TRUE}
 # calculate important features
 important_features <- importance( model_rf, sort=TRUE )
@@ -142,3 +150,11 @@ print( confusionMatrix( exercise_train_2$classe, predictions_rf_validation )$ove
 predictions_rf_test <- predict( model_rf, newdata = exercise_test, type = "class" )
 predictions_rf_test
 ```
+
+Not only is the reduced feature set much faster, but it still maintains high accuracy even when tested against the validation set.
+
+Normally, obtaining 99+ percent accuracy is *extremely unusual*, but we'll accept that, as my end goal is to predict the test set's activities as accurately as possible.
+
+## Conclusion
+
+100% accuracy on my 20 question quiz.  I pass!
